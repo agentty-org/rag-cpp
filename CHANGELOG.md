@@ -87,4 +87,4 @@ it wins, never slower otherwise).
 - Comprehensive docs in [`docs/`](docs/), plus `ARCHITECTURE.md`, `PLUGINS.md`,
   and `FORMAT.md`.
 
-[0.1.0]: https://github.com/1ay1/rag-cpp/releases/tag/v0.1.0
+[0.1.0]: https://github.com/agentty-org/rag-cpp/releases/tag/v0.1.0

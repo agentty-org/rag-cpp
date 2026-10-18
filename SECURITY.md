@@ -15,7 +15,7 @@ tagged release. The latest release is the supported one.
 Please report suspected vulnerabilities **privately** rather than opening a
 public issue:
 
-- Use GitHub's [private vulnerability reporting](https://github.com/1ay1/rag-cpp/security/advisories/new)
+- Use GitHub's [private vulnerability reporting](https://github.com/agentty-org/rag-cpp/security/advisories/new)
   ("Report a vulnerability" under the repository's **Security** tab), or
 - open a minimal, non-public channel with the maintainer.
 

@@ -18,7 +18,7 @@ still does full hybrid retrieval using its built-in hash embedder.
 ## Build
 
 ```sh
-git clone https://github.com/1ay1/rag-cpp
+git clone https://github.com/agentty-org/rag-cpp
 cd rag-cpp
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
