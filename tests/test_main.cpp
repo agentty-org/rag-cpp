@@ -394,6 +394,40 @@ TEST(upsert_of_same_uri_never_duplicates) {
     CHECK_EQ(hits.size(), std::size_t{1});
 }
 
+// pending_texts() lists exactly what build() hands the embedder, so a host can
+// embed those texts elsewhere (outside its own locks, in parallel) and give
+// the corpus an embedder that answers from them.
+TEST(pending_texts_matches_what_build_embeds) {
+    struct Recording {
+        std::shared_ptr<std::vector<std::string>> seen = std::make_shared<std::vector<std::string>>();
+        rag::dense::HashEmbedder inner{32};
+        [[nodiscard]] std::size_t dimension() const { return inner.dimension(); }
+        [[nodiscard]] std::string_view identity() const { return inner.identity(); }
+        [[nodiscard]] rag::Result<std::vector<rag::Vector>> embed(std::span<const std::string> t) const {
+            seen->insert(seen->end(), t.begin(), t.end());
+            return inner.embed(t);
+        }
+    } rec;
+    rag::index::Corpus c;
+    CHECK(c.pending_texts().empty());   // no embedder: nothing to embed
+    c.set_embedder(rag::dense::AnyEmbedder{rec});
+    REQUIRE(c.add_document("a.md", "# Title\n\nAlpha beta gamma.\n\nDelta epsilon.").has_value());
+    REQUIRE(c.add_document("b.md", "Zeta eta theta.").has_value());
+    const auto pending = c.pending_texts();
+    CHECK_EQ(pending.size(), c.pending_count());
+    CHECK(!pending.empty());
+    REQUIRE(c.build().has_value());
+    std::vector<std::string> a = pending, b = *rec.seen;
+    std::sort(a.begin(), a.end());
+    std::sort(b.begin(), b.end());
+    CHECK(a == b);
+    // Built: nothing left pending, until something new is added.
+    CHECK(c.pending_texts().empty());
+    CHECK_EQ(c.pending_count(), std::size_t{0});
+    REQUIRE(c.add_document("c.md", "Iota kappa.").has_value());
+    CHECK_EQ(c.pending_count(), std::size_t{1});
+}
+
 TEST(engine_hybrid_search) {
     rag::Engine engine;
     engine.with_embedder(rag::dense::AnyEmbedder{rag::dense::HashEmbedder{128}});

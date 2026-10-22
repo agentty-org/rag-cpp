@@ -193,9 +193,25 @@ void Corpus::ensure_linked() const {
     meta_stale_ = false;
 }
 
+std::vector<std::string> Corpus::pending_texts() const {
+    std::vector<std::string> out;
+    if (!embedder_) return out;
+    for (const auto& c : chunks_)
+        if (c.embedding.empty()) out.push_back(c.indexed_text());
+    return out;
+}
+
+std::size_t Corpus::pending_count() const noexcept {
+    if (!embedder_) return 0;
+    std::size_t n = 0;
+    for (const auto& c : chunks_)
+        if (c.embedding.empty()) ++n;
+    return n;
+}
+
 Result<void> Corpus::embed_pending() {
     if (!embedder_) return {};
-    // Collect chunks with empty embeddings.
+    // Collect chunks with empty embeddings (the same set pending_texts() lists).
     std::vector<std::size_t> pending;
     for (std::size_t i = 0; i < chunks_.size(); ++i)
         if (chunks_[i].embedding.empty()) pending.push_back(i);

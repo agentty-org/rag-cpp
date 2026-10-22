@@ -161,6 +161,15 @@ public:
         return embedder_ ? &*embedder_ : nullptr;
     }
 
+    // The texts build() would hand the embedder: every chunk that has no
+    // vector yet, in order. Lets a host that owns the threads embed them
+    // ahead of time, somewhere it can run requests in parallel (outside its
+    // own locks), and give the corpus an embedder that answers from those
+    // results. Cheap: a scan of the chunk list, no IO. Empty with no embedder.
+    [[nodiscard]] std::vector<std::string> pending_texts() const;
+    // How many chunks build() would embed (pending_texts().size(), no copies).
+    [[nodiscard]] std::size_t pending_count() const noexcept;
+
     // Embed arbitrary text with the attached embedder (unit-normalized, same as
     // indexed chunks). Fails with Errc::unavailable if no embedder is set. Used
     // by RAPTOR / HyDE / late-interaction which embed synthetic text.
