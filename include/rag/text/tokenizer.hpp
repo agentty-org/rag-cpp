@@ -22,6 +22,11 @@ struct TokenizeOptions {
     bool stem           = true;
     std::size_t min_len = 2;    // drop 1-char tokens (after stemming)
     std::size_t max_len = 40;   // guard against pathological runs
+    // Code: also index the words inside an identifier, so `on_clipboard_read`
+    // and `onClipboardRead` match a question about "clipboard read". The
+    // whole identifier is kept too, so an exact name still wins. Splits on
+    // `_`, lower->Upper, and acronym ends (`HTTPClient` -> http, client).
+    bool split_identifiers = false;
 };
 
 class Tokenizer {

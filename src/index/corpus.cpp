@@ -835,6 +835,14 @@ Result<store::Container> Corpus::snapshot_locked() const {
                        {"overlap_lines", cfg_.chunk.overlap_lines},
                        {"heading_context", cfg_.chunk.heading_context} };
         m["bm25"] = { {"k1", cfg_.bm25.k1}, {"b", cfg_.bm25.b} };
+        // The analysis chain is part of the index: postings were made with
+        // it, so queries must be tokenized the same way after a reload.
+        m["tokenize"] = { {"lowercase", cfg_.tokenize.lowercase},
+                           {"drop_stopwords", cfg_.tokenize.drop_stopwords},
+                           {"stem", cfg_.tokenize.stem},
+                           {"min_len", cfg_.tokenize.min_len},
+                           {"max_len", cfg_.tokenize.max_len},
+                           {"split_identifiers", cfg_.tokenize.split_identifiers} };
         c.put(store::Tag::meta, m.dump());
     }
 
@@ -931,6 +939,16 @@ Result<Corpus> Corpus::load(const std::string& path) {
                 c.cfg_.bm25.k1 = m["bm25"].value("k1", c.cfg_.bm25.k1);
                 c.cfg_.bm25.b  = m["bm25"].value("b", c.cfg_.bm25.b);
             }
+            if (m.contains("tokenize")) {
+                const auto& t = m["tokenize"];
+                auto& o = c.cfg_.tokenize;
+                o.lowercase         = t.value("lowercase", o.lowercase);
+                o.drop_stopwords    = t.value("drop_stopwords", o.drop_stopwords);
+                o.stem              = t.value("stem", o.stem);
+                o.min_len           = t.value("min_len", o.min_len);
+                o.max_len           = t.value("max_len", o.max_len);
+                o.split_identifiers = t.value("split_identifiers", o.split_identifiers);
+            }
         }
     }
 
@@ -987,7 +1005,7 @@ Result<Corpus> Corpus::load(const std::string& path) {
 
     // BM25 (required).
     if (const std::string* b = cont->get(store::Tag::bm25)) {
-        auto idx = lexical::Bm25Index::deserialize(*b);
+        auto idx = lexical::Bm25Index::deserialize(*b, c.cfg_.tokenize);
         if (!idx) return std::unexpected(idx.error());
         c.bm25_ = std::move(*idx);
     }

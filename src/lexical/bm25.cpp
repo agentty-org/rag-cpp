@@ -564,8 +564,9 @@ std::string Bm25Index::serialize() const {
     return out;
 }
 
-Result<Bm25Index> Bm25Index::deserialize(std::string_view blob) {
+Result<Bm25Index> Bm25Index::deserialize(std::string_view blob, text::TokenizeOptions topts) {
     Bm25Index idx;
+    idx.tok_ = text::Tokenizer{topts};
     std::uint32_t magic, version;
     if (!get(blob, magic) || magic != kMagic)   return fail<Bm25Index>(Errc::corrupt_index, "bad magic");
     if (!get(blob, version) || version != kVersion) return fail<Bm25Index>(Errc::corrupt_index, "bad version");

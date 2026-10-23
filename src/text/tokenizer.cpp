@@ -244,27 +244,61 @@ std::vector<std::string> Tokenizer::tokenize(std::string_view text) const {
     std::string cur;
     cur.reserve(32);
 
-    auto flush = [&] {
-        if (cur.empty()) return;
-        if (cur.size() <= opts_.max_len) {
-            if (!(opts_.drop_stopwords && is_stopword(cur))) {
-                if (opts_.stem) {
-                    const std::string& tok = stem_cached(cur);
-                    if (tok.size() >= opts_.min_len) out.push_back(tok);
-                } else if (cur.size() >= opts_.min_len) {
-                    out.push_back(cur);
-                }
-            }
+    auto emit = [&](std::string w) {
+        if (w.empty() || w.size() > opts_.max_len) return;
+        if (opts_.drop_stopwords && is_stopword(w)) return;
+        if (opts_.stem) {
+            const std::string& tok = stem_cached(w);
+            if (tok.size() >= opts_.min_len) out.push_back(tok);
+        } else if (w.size() >= opts_.min_len) {
+            out.push_back(std::move(w));
         }
+    };
+
+    // With split_identifiers, `raw` keeps the original case of the current
+    // run (letters, digits and '_') so its parts can be found.
+    std::string raw;
+    auto flush = [&] {
+        if (cur.empty()) { raw.clear(); return; }
+        if (opts_.split_identifiers && raw.size() > 3) {
+            std::vector<std::string> parts;
+            std::string part;
+            for (std::size_t i = 0; i < raw.size(); ++i) {
+                const char c = raw[i];
+                if (c == '_') {
+                    if (!part.empty()) parts.push_back(std::move(part)), part.clear();
+                    continue;
+                }
+                const bool up = std::isupper(static_cast<unsigned char>(c));
+                const bool prev_lower = i > 0 && (std::islower(static_cast<unsigned char>(raw[i - 1]))
+                                                  || std::isdigit(static_cast<unsigned char>(raw[i - 1])));
+                const bool next_lower = i + 1 < raw.size() && std::islower(static_cast<unsigned char>(raw[i + 1]));
+                const bool prev_upper = i > 0 && std::isupper(static_cast<unsigned char>(raw[i - 1]));
+                // fooBar -> foo|Bar ; HTTPClient -> HTTP|Client
+                if (up && !part.empty() && (prev_lower || (prev_upper && next_lower)))
+                    parts.push_back(std::move(part)), part.clear();
+                part.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+            }
+            if (!part.empty()) parts.push_back(std::move(part));
+            if (parts.size() > 1)
+                for (auto& p : parts) emit(std::move(p));
+        }
+        // The whole run as well ("onclipboardread"): an exact identifier
+        // in the query still matches it best.
+        std::string whole;
+        for (char c : cur) if (c != '_') whole.push_back(c);
+        emit(std::move(whole));
         cur.clear();
+        raw.clear();
     };
 
     for (char ch : text) {
         unsigned char c = static_cast<unsigned char>(ch);
         bool alnum = std::isalnum(c);
         bool intra = (c == '\'');   // keep apostrophes inside words
-        if (alnum) {
+        if (alnum || (opts_.split_identifiers && c == '_' && !cur.empty())) {
             cur.push_back(opts_.lowercase ? static_cast<char>(std::tolower(c)) : ch);
+            if (opts_.split_identifiers) raw.push_back(ch);
         } else if (intra && !cur.empty()) {
             // skip apostrophe; "don't" -> "dont" then stopword/stem handles it
         } else {

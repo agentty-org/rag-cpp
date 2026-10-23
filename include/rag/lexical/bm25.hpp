@@ -108,7 +108,8 @@ public:
 
     // Serialization to/from a binary blob (little-endian, versioned).
     [[nodiscard]] std::string serialize() const;
-    [[nodiscard]] static Result<Bm25Index> deserialize(std::string_view blob);
+    [[nodiscard]] static Result<Bm25Index> deserialize(std::string_view blob,
+                                                       text::TokenizeOptions topts = {});
 
 private:
     Bm25Params params_{};

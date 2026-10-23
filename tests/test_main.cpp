@@ -100,6 +100,46 @@ TEST(tokenizer_drops_stopwords_and_stems) {
     CHECK(has_cat); CHECK(has_run); CHECK(!has_the);
 }
 
+TEST(tokenizer_split_identifiers) {
+    rag::text::TokenizeOptions o;
+    o.stem = false;
+    o.split_identifiers = true;
+    rag::text::Tokenizer tok{o};
+    auto has = [](const std::vector<std::string>& v, std::string_view w) {
+        return std::find(v.begin(), v.end(), w) != v.end();
+    };
+    auto a = tok.tokenize("on_clipboard_read(x)");
+    CHECK(has(a, "clipboard")); CHECK(has(a, "read")); CHECK(has(a, "onclipboardread"));
+    auto b = tok.tokenize("onClipboardRead HTTPClient parseJSON2");
+    CHECK(has(b, "clipboard")); CHECK(has(b, "http")); CHECK(has(b, "client"));
+    CHECK(has(b, "parse")); CHECK(has(b, "httpclient"));
+    // Off by default: no camelCase split (snake_case was always split on '_',
+    // which isn't a word character, so that part is unchanged).
+    rag::text::Tokenizer plain;
+    auto d = plain.tokenize("HTTPClient onClipboardRead");
+    CHECK(!has(d, "client"));
+    CHECK(!has(d, "clipboard"));
+}
+
+// The tokenizer options are part of the index: a reload must query with the
+// same analysis chain, or split terms would never match.
+TEST(tokenizer_options_survive_save_and_load) {
+    rag::index::CorpusConfig cfg;
+    cfg.tokenize.split_identifiers = true;
+    rag::index::Corpus c{cfg};
+    REQUIRE(c.add_document("a.cpp", "void on_clipboard_read() {}\n").has_value());
+    REQUIRE(c.add_document("b.cpp", "int unrelated_thing() { return 0; }\n").has_value());
+    REQUIRE(c.build().has_value());
+    const std::string path = (std::filesystem::temp_directory_path() / "rag_tok_roundtrip.ragdb").string();
+    REQUIRE(c.save(path).has_value());
+    auto back = rag::index::Corpus::load(path);
+    REQUIRE(back.has_value());
+    auto hits = back->lexical_search("clipboard read", 5);
+    REQUIRE(!hits.empty());
+    CHECK_EQ(back->resolve(hits.front()).uri, std::string{"a.cpp"});
+    std::remove(path.c_str());
+}
+
 TEST(chunker_produces_chunks) {
     std::string body = "# Title\n\nFirst paragraph here.\n\n## Section\n\nSecond paragraph body.\n";
     auto chunks = rag::text::chunk_document(rag::DocId{0}, body, {});
