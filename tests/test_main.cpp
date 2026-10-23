@@ -140,6 +140,41 @@ TEST(tokenizer_options_survive_save_and_load) {
     std::remove(path.c_str());
 }
 
+// Query and document prefixes reach the embedder and survive a reload.
+TEST(embed_prefixes_reach_the_embedder_and_persist) {
+    struct Spy {
+        std::shared_ptr<std::vector<std::string>> seen = std::make_shared<std::vector<std::string>>();
+        rag::Result<std::vector<rag::Vector>> embed(std::span<const std::string> ts) const {
+            std::vector<rag::Vector> out;
+            for (const auto& t : ts) { seen->push_back(t); out.push_back(rag::Vector(8, 1.0f)); }
+            return out;
+        }
+        std::size_t dimension() const { return 8; }
+        std::string_view identity() const { return "spy"; }
+    };
+    Spy spy;
+    rag::index::CorpusConfig cfg;
+    cfg.query_prefix = "q: ";
+    cfg.doc_prefix = "d: ";
+    rag::index::Corpus c{cfg};
+    c.set_embedder(rag::dense::AnyEmbedder{spy});
+    REQUIRE(c.add_document("a", "hello world").has_value());
+    CHECK(!c.pending_texts().empty() && c.pending_texts().front().starts_with("d: "));
+    REQUIRE(c.build().has_value());
+    CHECK(!spy.seen->empty() && spy.seen->front().starts_with("d: "));
+    CHECK_EQ(c.query_text("hi"), std::string{"q: hi"});
+    spy.seen->clear();
+    (void)c.dense_search("hi", 1);
+    CHECK(!spy.seen->empty() && spy.seen->back() == "q: hi");
+    const std::string path = (std::filesystem::temp_directory_path() / "rag_prefix_roundtrip.ragdb").string();
+    REQUIRE(c.save(path).has_value());
+    auto back = rag::index::Corpus::load(path);
+    REQUIRE(back.has_value());
+    CHECK_EQ(back->config().query_prefix, std::string{"q: "});
+    CHECK_EQ(back->config().doc_prefix, std::string{"d: "});
+    std::remove(path.c_str());
+}
+
 TEST(chunker_produces_chunks) {
     std::string body = "# Title\n\nFirst paragraph here.\n\n## Section\n\nSecond paragraph body.\n";
     auto chunks = rag::text::chunk_document(rag::DocId{0}, body, {});

@@ -197,7 +197,7 @@ std::vector<std::string> Corpus::pending_texts() const {
     std::vector<std::string> out;
     if (!embedder_) return out;
     for (const auto& c : chunks_)
-        if (c.embedding.empty()) out.push_back(c.indexed_text());
+        if (c.embedding.empty()) out.push_back(cfg_.doc_prefix + c.indexed_text());
     return out;
 }
 
@@ -240,7 +240,8 @@ Result<void> Corpus::embed_pending() {
         const std::size_t end = std::min(off + bs, pending.size());
         std::vector<std::string> batch;
         batch.reserve(end - off);
-        for (std::size_t j = off; j < end; ++j) batch.push_back(chunks_[pending[j]].indexed_text());
+        for (std::size_t j = off; j < end; ++j)
+            batch.push_back(cfg_.doc_prefix + chunks_[pending[j]].indexed_text());
 
         auto res = embedder_->embed(batch);
         if (!res) {
@@ -385,7 +386,7 @@ Corpus::Explanation Corpus::explain(std::string_view query, ChunkId id) const {
     // than re-embedding its text, so the number is exactly what dense_search
     // would have scored.
     if (embedder_ && !chunks_[cid].embedding.empty()) {
-        if (auto qv = embedder_->embed_one(std::string(query))) {
+        if (auto qv = embedder_->embed_one(query_text(query))) {
             dense::normalize(*qv);
             e.dense_score = dense::dot(*qv, chunks_[cid].embedding);
             e.has_dense = true;
@@ -454,7 +455,7 @@ Corpus::dense_search_batch(std::span<const std::string> queries, std::size_t k,
             qmat.reserve(nq * dim);
             bool ok = true;
             for (const auto& q : queries) {
-                auto qv = embedder_->embed_one(q);
+                auto qv = embedder_->embed_one(query_text(q));
                 if (!qv || qv->size() != dim) { ok = false; break; }
                 dense::normalize(*qv);
                 qmat.insert(qmat.end(), qv->begin(), qv->end());
@@ -578,7 +579,7 @@ Result<std::vector<Hit>> Corpus::dense_search_locked(std::string_view query, std
                                                      const MetaFilter& filter) const {
     if (!embedder_) return fail<std::vector<Hit>>(Errc::unavailable, "no embedder");
     ensure_linked();     // the allow-predicate below dereferences chunk->meta
-    auto qv = embedder_->embed_one(std::string(query));
+    auto qv = embedder_->embed_one(query_text(query));
     if (!qv) return std::unexpected(qv.error());
     dense::normalize(*qv);
 
@@ -841,6 +842,8 @@ Result<store::Container> Corpus::snapshot_locked() const {
         // holding two incompatible chunk granularities. Both are ingest policy
         // and both round-trip.
         m["contextual"]     = cfg_.contextual;
+        m["query_prefix"]   = cfg_.query_prefix;
+        m["doc_prefix"]     = cfg_.doc_prefix;
         // The chunking MODE is ingest policy too, and was missing for exactly the
         // same reason the geometry was: a corpus built with `proposition` (or
         // `semantic`) reopened as `fixed` and chunked new documents on a
@@ -940,6 +943,8 @@ Result<Corpus> Corpus::load(const std::string& path) {
             c.cfg_.hnsw_threshold = m.value("hnsw_threshold", c.cfg_.hnsw_threshold);
             c.cfg_.embed_batch    = m.value("embed_batch", c.cfg_.embed_batch);
             c.cfg_.contextual     = m.value("contextual", c.cfg_.contextual);
+            c.cfg_.query_prefix   = m.value("query_prefix", std::string{});
+            c.cfg_.doc_prefix     = m.value("doc_prefix", std::string{});
             if (m.contains("chunking")) {
                 const std::string mode = m.value("chunking", std::string("fixed"));
                 c.cfg_.chunking = mode == "proposition" ? CorpusConfig::Chunking::proposition

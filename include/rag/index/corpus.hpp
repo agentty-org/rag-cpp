@@ -126,6 +126,13 @@ struct CorpusConfig {
     // purpose: the paper's method rewrites what is indexed, so it has to run
     // before the indexes are built. A query-time stage cannot reproduce it.
     bool                   contextual = false;
+
+    // Text put in front of what is embedded, for models trained with an
+    // instruction per side (nomic: "search_query: " / "search_document: ",
+    // e5: "query: " / "passage: "). Empty for symmetric models. Saved with
+    // the index, since stored vectors were made with the doc prefix.
+    std::string            query_prefix;
+    std::string            doc_prefix;
 };
 
 // Predicate over a chunk's document metadata for filtered retrieval.
@@ -174,6 +181,11 @@ public:
     // indexed chunks). Fails with Errc::unavailable if no embedder is set. Used
     // by RAPTOR / HyDE / late-interaction which embed synthetic text.
     [[nodiscard]] Result<Vector> embed_text(const std::string& text) const;
+    // The exact string dense search embeds for `query` (query_prefix + query),
+    // so a caller prefetching vectors asks for the same text.
+    [[nodiscard]] std::string query_text(std::string_view query) const {
+        return cfg_.query_prefix + std::string(query);
+    }
 
     // Attach an LLM to write the situating context (Anthropic's method as
     // published). Only consulted when cfg.contextual is true; with contextual
