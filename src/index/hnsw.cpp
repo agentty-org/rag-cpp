@@ -495,9 +495,12 @@ void HnswIndex::build_batch(std::size_t n,
     // buffer is sized once and never reallocated while linking threads hold
     // pointers into it.
     if (!cfg_.binary && cfg_.matryoshka_dim == 0 && dim_ > 0) {
+        // Appending to a graph that was sealed: unseal() dropped the old rows'
+        // codes, so quantize those too or they'd score as zeros.
+        const std::size_t from = q8_.size() >= base * dim_ ? base : 0;
         q8_.resize(total * dim_);
-        util::parallel_for(cfg_.split, total - base, [&](std::size_t i) {
-            const std::size_t node = base + i;
+        util::parallel_for(cfg_.split, total - from, [&](std::size_t i) {
+            const std::size_t node = from + i;
             dense::quantize_sq8(vec_at(node),
                                 std::span<std::int8_t>(q8_.data() + node * dim_, dim_));
         });
@@ -742,6 +745,21 @@ void HnswIndex::ensure_id_index() {
 
 void HnswIndex::remove(std::uint32_t id) { deleted_.insert(id); }
 bool HnswIndex::is_deleted(std::uint32_t id) const noexcept { return deleted_.count(id) != 0; }
+
+std::unordered_set<std::uint32_t> HnswIndex::live_ids() const {
+    std::unordered_set<std::uint32_t> out;
+    out.reserve(nodes_.size());
+    for (const auto& nd : nodes_)
+        if (!nd.superseded && !deleted_.count(nd.id)) out.insert(nd.id);
+    return out;
+}
+
+std::size_t HnswIndex::dead_count() const noexcept {
+    std::size_t n = 0;
+    for (const auto& nd : nodes_)
+        if (nd.superseded || deleted_.count(nd.id)) ++n;
+    return n;
+}
 
 void HnswIndex::compact() {
     // Superseded nodes are garbage too — stale vectors of ids that were re-added

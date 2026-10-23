@@ -999,6 +999,50 @@ TEST(deleted_document_does_not_resurrect_after_save_and_load) {
     std::remove(path.c_str());
 }
 
+TEST(rebuild_after_an_edit_appends_to_the_graph) {
+    // build() after a small change adds the new chunks to the existing graph
+    // instead of relinking it, and both old and new chunks stay findable,
+    // also after a save/load round trip with the edit made on the reloaded copy.
+    const std::string path = test_temp_path("ragcpp_append.ragdb");
+    rag::DocId victim{};
+    {
+        auto c = tomb_corpus(3000, 7, victim);
+        REQUIRE(c.remove_document(victim).has_value());
+        REQUIRE(c.save(path).has_value());
+    }
+    auto re = rag::index::Corpus::load(path);
+    REQUIRE(re.has_value());
+    re->set_embedder(rag::dense::AnyEmbedder{rag::dense::HashEmbedder{64}});
+    auto fresh = re->add_document("new", "zeta omega brand new text");
+    REQUIRE(fresh.has_value());
+    REQUIRE(re->build().has_value());
+    auto hits = re->dense_search("zeta omega brand new text", 5);
+    REQUIRE(hits.has_value());
+    CHECK(contains_doc(*hits, *re, *fresh));
+    CHECK(!contains_doc(*hits, *re, victim));
+    // Old docs are still found by their own text. With stale SQ8 codes for the
+    // old rows the walk can't navigate and these come back wrong.
+    // A fresh build of the same docs is the bar (hash vectors of such similar
+    // texts collide, so even it misses a few).
+    rag::DocId v2{};
+    auto fresh_c = tomb_corpus(3000, 7, v2);
+    auto count_found = [](const rag::index::Corpus& c) {
+        int n = 0;
+        for (int i = 100; i < 3000; i += 97) {
+            auto o = c.dense_search("alpha beta gamma document " + std::to_string(i), 3);
+            if (!o) continue;
+            for (const auto& h : *o) {
+                const auto* ch = c.chunk(h.chunk);
+                const auto* d = ch ? c.document(ch->doc) : nullptr;
+                if (d && d->uri == "d" + std::to_string(i)) { ++n; break; }
+            }
+        }
+        return n;
+    };
+    CHECK(count_found(*re) + 3 >= count_found(fresh_c));
+    std::remove(path.c_str());
+}
+
 TEST(deleted_document_is_excluded_from_the_batch_mirror) {
     // dense_search_batch's scan branch scores the packed mirror and builds hits
     // straight from packed_ids_, with NO later deleted_docs_ check — so the

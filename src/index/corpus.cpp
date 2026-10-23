@@ -274,6 +274,25 @@ Result<void> Corpus::build_locked() {
         if (auto r = embed_pending(); !r) return r;  // degrade: propagate, caller may ignore
         // Build HNSW past threshold.
         if (chunks_.size() >= cfg_.hnsw_threshold) {
+            // An existing graph only needs the chunks it lacks. Relink from
+            // scratch when there is none, or once a quarter of it is dead.
+            if (hnsw_ && hnsw_->can_append()
+                && hnsw_->dead_count() * 4 <= hnsw_->size()) {
+                const auto have = hnsw_->live_ids();
+                std::vector<std::size_t> rows;
+                for (std::size_t i = 0; i < chunks_.size(); ++i)
+                    if (!chunks_[i].embedding.empty()
+                        && !deleted_docs_.count(chunks_[i].doc.get())
+                        && !have.count(chunks_[i].id.get()))
+                        rows.push_back(i);
+                if (!rows.empty())
+                    hnsw_->build_batch(rows.size(),
+                        [&](std::size_t i) -> std::span<const float> { return chunks_[rows[i]].embedding; },
+                        [&](std::size_t i) { return chunks_[rows[i]].id.get(); });
+                dirty_ = false;
+                ++epoch_;
+                return {};
+            }
             auto hc = cfg_.hnsw;
             if (hc.split.inline_only()) hc.split = cfg_.split;
             HnswIndex idx(hc);
@@ -1024,6 +1043,11 @@ Result<Corpus> Corpus::load(const std::string& path) {
             c.deleted_docs_.insert(id);
         }
     }
+    // The graph doesn't persist its tombstones; mark deleted docs' chunks so
+    // build() knows which nodes are dead.
+    if (c.hnsw_ && !c.deleted_docs_.empty())
+        for (const auto& ch : c.chunks_)
+            if (c.deleted_docs_.count(ch.doc.get())) c.hnsw_->remove(ch.id.get());
     return c;
 }
 

@@ -231,6 +231,12 @@ public:
 
     [[nodiscard]] std::size_t size()      const noexcept { return nodes_.size(); }
     [[nodiscard]] std::size_t dimension() const noexcept { return dim_; }
+    // Ids that have a node search can return (present, not removed).
+    [[nodiscard]] std::unordered_set<std::uint32_t> live_ids() const;
+    // Nodes search can never return: removed ids plus superseded upserts.
+    [[nodiscard]] std::size_t dead_count() const noexcept;
+    // False once drop_floats released the vectors: appending would need them.
+    [[nodiscard]] bool can_append() const noexcept { return !floats_dropped_; }
 
     // Bytes of heap actually held by the index, broken down by component.
     // Reported rather than inferred: process RSS cannot measure a release (the
